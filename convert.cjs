@@ -2,56 +2,69 @@ const express = require('express');
 const webmToMp4 = require('webm-to-mp4');
 const fs = require('fs');
 const path = require('path');
+const cors = require('cors');
+
+require('dotenv').config();
 const app = express();
+
+app.use(cors({
+    origin: '*', // Allow requests from any origin
+}));
+
+app.use(express.json({ limit: '50mb' })); // Increase the limit if needed
 
 app.post('/convert', async (req, res) => {
     try {
-        const chunks = [];
+        const videoData = req.body['videoData'];
+        console.log('Received base64 video content', videoData.length);
 
-        // Collect the binary data from the request
-        req.on('data', (chunk) => {
-            chunks.push(chunk);
-        });
+        // Decode the base64 string to get the WebM buffer
+        const webmBuffer = Buffer.from(videoData, 'base64');
 
-        req.on('end', async () => {
-            const webmBuffer = Buffer.concat(chunks);
+        // Define the path to save the WebM file
+        const webmFilePath = path.join(__dirname, 'video.webm');
 
-            // Convert the webmBuffer to mp4
-            const arrayBuffer = await webmToMp4(webmBuffer);
+        // Save the WebM buffer to a file
+        fs.writeFile(webmFilePath, webmBuffer, async (err) => {
+            if (err) {
+                console.error('Error saving WebM file:', err);
+                return res.status(500).send('Internal server error');
+            }
 
-            // Convert ArrayBuffer to Buffer
-            const mp4Buffer = Buffer.from(arrayBuffer);
+            try {
+                // Convert the webmBuffer to mp4
+                const arrayBuffer = await webmToMp4(webmBuffer);
 
-            // Define the path to save the file
-            const filePath = path.join(__dirname, 'video.mp4');
+                // Convert ArrayBuffer to Buffer
+                const mp4Buffer = Buffer.from(arrayBuffer);
 
-            // Save the MP4 buffer to a file
-            fs.writeFile(filePath, mp4Buffer, (err) => {
-                if (err) {
-                    console.error('Error saving file:', err);
-                    return res.status(500).send('Internal server error');
-                }
+                // Define the path to save the MP4 file
+                const mp4FilePath = path.join(__dirname, 'video.mp4');
 
-                // Send the file in the response
-                res.setHeader('Content-Type', 'video/mp4');
-                res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
-                res.sendFile(filePath, (err) => {
+                // Save the MP4 buffer to a file
+                fs.writeFile(mp4FilePath, mp4Buffer, (err) => {
                     if (err) {
-                        console.error('Error sending file:', err);
-                        res.status(500).send('Internal server error');
-                    } else {
-                        // Optionally, delete the file after sending
-                        fs.unlink(filePath, (err) => {
-                            if (err) {
-                                console.error('Error deleting file:', err);
-                            }
-                        });
+                        console.error('Error saving MP4 file:', err);
+                        return res.status(500).send('Internal server error');
                     }
+
+                    // Send the file in the response
+                    res.setHeader('Content-Type', 'video/mp4; charset=utf-8');
+                    res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
+                    res.sendFile(mp4FilePath, (err) => {
+                        if (err) {
+                            console.error('Error sending file:', err);
+                            res.status(500).send('Internal server error');
+                        }
+                    });
                 });
-            });
+            } catch (conversionError) {
+                console.error('Error during conversion:', conversionError);
+                res.status(500).send('Internal server error');
+            }
         });
     } catch (error) {
-        console.error('Error during conversion:', error);
+        console.error('Error during processing:', error);
         res.status(500).send('Internal server error');
     }
 });
